@@ -1,8 +1,14 @@
 #lang racket
 
-(provide empty-env push-scope pop-scope add-binding retrieve-binding)
+(provide empty-env push-scope pop-scope add-binding retrieve-binding environment?)
 
 (require "maybe.rkt" "pair.rkt" "lists.rkt" "alist.rkt")
+
+(define environment?
+  (λ (env)
+    (if (null? env)
+        true
+        (list? (car env)))))
 
 (define empty-env (list new-alist))
 
@@ -39,4 +45,10 @@
                 "latest binding wins")
   (check-equal? (retrieve-binding 'x (pop-scope (add-binding 'x 6 (push-scope env))))
                 (just 5)
-                "push then pop is no-op"))
+                "push then pop is no-op")
+  (check-equal? (environment? empty-env)
+                #t
+                "empty environment is an environment")
+  (check-equal? (environment? (add-binding 'x 5 empty-env))
+                #t
+                "populated environment is an environment"))
