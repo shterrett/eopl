@@ -1,8 +1,10 @@
 #lang racket
 
 (require (lib "eopl.ss" "eopl"))
+(require predicates)
 (require "../environment.rkt")
 (require "../maybe.rkt")
+(require "../functions.rkt")
 
 (define-datatype program program?
   (a-program
@@ -27,11 +29,28 @@
    (exp1 expression?)
    (body expression?))
   (proc-exp
+    (vars list-of-symbols?)
+    (body expression?))
+  (procc-exp
     (var symbol?)
     (body expression?))
   (call-exp
     (f expression?)
-    (x expression?)))
+    (x list-of-expressions?))
+  (callc-exp
+    (f expression?)
+    (x expression?))
+  )
+
+(define list-of-symbols?
+  (λ (ls)
+     (and  (list? ls)
+           ((all? symbol?) ls))))
+
+(define list-of-expressions?
+  (λ (ls)
+     (and (list? ls)
+          ((all? expression?) ls))))
 
 (define-datatype expval expval?
   (num-val
@@ -46,6 +65,15 @@
    (var symbol?)
    (body expression?)
    (saved-env environment?)))
+
+(define curry-proc-exp
+  (λ (vars body)
+     (foldr procc-exp body vars)))
+
+(define curry-call-exp
+  (λ (f xs)
+     (foldl (flip callc-exp) f xs)
+     ))
 
 (define apply-procedure
   (λ (f val)
@@ -73,10 +101,10 @@
      ("let" identifier "=" expression "in" expression)
      let-exp)
     (expression
-     ("proc" "(" identifier ")" expression)
+     ("proc" "(" (arbno identifier) ")" expression)
      proc-exp)
     (expression
-     ("(" expression expression ")")
+     ("(" expression (arbno expression) ")")
      call-exp)))
 
 (define scan&parse
@@ -156,12 +184,16 @@
                     (let ((val1 (value-of exp1 env)))
                           (value-of body
                                     (add-binding var val1 (push-scope env)))))
-           (proc-exp (var body)
-                     (proc-val (procedure var body env)))
-           (call-exp (rator rand)
-                     (let ((proc (expval->proc (value-of rator env)))
-                           (arg (value-of rand env)))
-                       (apply-procedure proc arg))))))
+           (proc-exp (vars body)
+                     (value-of (curry-proc-exp vars body) env))
+           (procc-exp (var body)
+                      (proc-val (procedure var body env)))
+           (callc-exp (f x)
+                     (let ((proc (expval->proc (value-of f env)))
+                           (arg (value-of x env)))
+                       (apply-procedure proc arg)))
+           (call-exp (f xs)
+                     (value-of (curry-call-exp f xs) env)))))
 
 (module+ test
   (require rackunit)
@@ -203,5 +235,11 @@
                 "apply procedure with nested if")
   (check-equal? (run "let f = proc (x) proc(y) -(x, y) in ((f 5) 3)")
                 (num-val 2)
-                "curried function"))
-
+                "curried function")
+  (check-equal? (run "let add = proc (x y) -(0, -( -(0, x), y)) in ((add 3) 4)")
+                (num-val 7)
+                "automatically curried function")
+  (check-equal? (run "let add = proc (x y) -(0, -( -(0, x), y)) in (add 3 4)")
+                (num-val 7)
+                "automatically curried function application")
+  )
