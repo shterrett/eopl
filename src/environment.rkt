@@ -1,6 +1,9 @@
 #lang racket
 
-(provide empty-env push-scope pop-scope add-binding retrieve-binding environment?)
+(provide empty-env environment?
+         push-scope pop-scope
+         add-binding add-binding-recursive
+         retrieve-binding)
 
 (require "maybe.rkt" "pair.rkt" "lists.rkt" "alist.rkt")
 
@@ -21,6 +24,14 @@
   (λ (k v env)
     (cons (add-alist (head env) k v)
           (tail env))))
+
+(define add-binding-recursive
+  (λ (k fv env)
+     (let* ((binding (pair k k))
+            (al (cons binding (head env)))
+            (new-env (cons al (tail env))))
+       (set-mcdr! binding (fv new-env))
+       new-env)))
 
 (define retrieve-binding
   (λ (k env)
@@ -51,4 +62,10 @@
                 "empty environment is an environment")
   (check-equal? (environment? (add-binding 'x 5 empty-env))
                 #t
-                "populated environment is an environment"))
+                "populated environment is an environment")
+  (let ((e (add-binding-recursive 'f
+                                 (λ(e) (cons 'e e))
+                                 (add-binding 'x 6 empty-env))))
+    (check-equal? (retrieve-binding 'f e)
+                (just (cons 'e e))))
+  )

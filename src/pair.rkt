@@ -2,8 +2,8 @@
 
 (provide pair fst snd)
 
-(define pair cons)
+(define pair mcons)
 
-(define fst car)
+(define fst mcar)
 
-(define snd cdr)
+(define snd mcdr)

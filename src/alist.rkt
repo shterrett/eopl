@@ -20,7 +20,7 @@
 (define remove-alist
   (λ (as k)
     (cond ((null? as) '())
-          ((eq? (head (head as)) k) (tail as))
+          ((eq? (fst (head as)) k) (tail as))
           (true (cons (head as) (remove-alist (tail as) k))))))
 
 (module+ test
