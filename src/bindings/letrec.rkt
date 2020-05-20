@@ -36,7 +36,7 @@
     (body expression?))
   (letrec-exp
     (name symbol?)
-    (var symbol?)
+    (vars list-of-symbols?)
     (fn-body expression?)
     (let-body expression?))
   (call-exp
@@ -109,7 +109,7 @@
      ("proc" "(" (arbno identifier) ")" expression)
      proc-exp)
     (expression
-      ("letrec" identifier "(" identifier ")" "=" expression "in" expression)
+      ("letrec" identifier "(" (arbno identifier) ")" "=" expression "in" expression)
       letrec-exp)
     (expression
      ("(" expression (arbno expression) ")")
@@ -196,8 +196,8 @@
                      (value-of (curry-proc-exp vars body) env))
            (procc-exp (var body)
                       (proc-val (procedure var body env)))
-           (letrec-exp (name var fn-body let-body)
-                       (let ((pv (λ(new-env) (proc-val (procedure var fn-body new-env)))))
+           (letrec-exp (name vars fn-body let-body)
+                       (let ((pv (λ(new-env) (value-of (curry-proc-exp vars fn-body) new-env))))
                         (value-of let-body
                                   (add-binding-recursive name pv env))
                        ))
@@ -258,4 +258,10 @@
   (check-equal? (run "letrec tozero (x) = if zero?(x) then x else (tozero -(x, 1)) in (tozero 4)")
                   (num-val 0)
                   "recursion!")
+  (check-equal? (run "letrec diff (x y) = if zero?(y) then x else (diff -(x, 1) -(y, 1)) in ((diff 5) 4)")
+                (num-val 1)
+                "curried recursion")
+  (check-equal? (run "letrec diff (x y) = if zero?(y) then x else (diff -(x, 1) -(y, 1)) in (diff 5 4)")
+                (num-val 1)
+                "uncurried recursion")
   )
