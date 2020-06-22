@@ -3,8 +3,9 @@
 (provide empty-env environment?
          push-scope pop-scope
          add-binding add-binding-recursive
+         add-reference
          retrieve-binding
-         retrieve-binding-ref)
+         retrieve-reference)
 
 (require
   "../maybe.rkt"
@@ -31,6 +32,11 @@
     (cons (add-alist (head env) k (newref v))
           (tail env))))
 
+(define add-reference
+  (λ (k ref env)
+    (cons (add-alist (head env) k ref)
+          (tail env))))
+
 (define add-binding-recursive
   (λ (k fv env)
      (let* ((binding (pair k (newref k)))
@@ -40,16 +46,16 @@
        new-env)))
 
 (define retrieve-binding
-  (λ (k env) (deref (retrieve-binding-ref k env))))
+  (λ (k env) (deref (retrieve-reference k env))))
 
-(define retrieve-binding-ref
+(define retrieve-reference
   (λ (k env)
     (if (null? env)
       (report-env-lookup-error k)
       (let ([val (find-alist (head env) k)])
           (if (is-just val)
             (cdr val)
-            (retrieve-binding-ref k (tail env)))))))
+            (retrieve-reference k (tail env)))))))
 
 (define report-env-lookup-error
   (λ (var)

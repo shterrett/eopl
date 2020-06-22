@@ -65,6 +65,9 @@
   (setright-exp
     (p expression?)
     (r expression?))
+  (set-exp
+    (ref expression?)
+    (val expression?))
   )
 
 (define list-of-symbols?
@@ -103,10 +106,10 @@
      ))
 
 (define apply-procedure
-  (λ (f val)
+  (λ (f add-arg)
     (cases proc f
            (procedure (var body saved-env)
-                      (value-of body (add-binding var val saved-env))))))
+                      (value-of body (add-arg var saved-env))))))
 
 (define lexical-spec
   '((whitespace (whitespace) skip)
@@ -150,6 +153,8 @@
       setleft-exp)
     (expression ("setright!" "(" expression "," expression ")")
       setright-exp)
+    (expression ("set!" "(" expression "," expression ")" )
+      set-exp)
     ))
 
 (define scan&parse
@@ -236,8 +241,8 @@
                        ))
            (callc-exp (f x)
                      (let ((proc (expval->proc (value-of f env)))
-                           (arg (value-of x env)))
-                       (apply-procedure proc arg)))
+                           (add-arg (value-of-operand x env)))
+                       (apply-procedure proc add-arg)))
            (call-exp (f xs)
                      (value-of (curry-call-exp f xs) env))
            (assign-exp (var val)
@@ -259,7 +264,34 @@
                         (setleft! (value-of p env) (value-of l env)))
            (setright-exp (p r)
                          (setright! (value-of p env) (value-of r env)))
+           (set-exp (exp1 exp2)
+                      (let ((ref
+                              (cases expression exp1
+                                (var-exp (var) (retrieve-reference var env))
+                                (else (raise-argument-error "expected reference"
+                                                            "exp-ref"
+                                                            exp1))))
+
+                            (val (value-of exp2 env)))
+                        (begin
+                          (setref! ref val)
+                          (num-val 23)))) ;; we have to return a value and
+                                          ;; don't have a nil or unit
            )))
+
+(define value-of-operand
+  (λ (arg env)
+     (cases expression arg
+            (var-exp (var)
+                (λ (var-name new-env)
+                  (add-reference var-name
+                                 (retrieve-reference var env)
+                                 new-env)))
+            (else
+                (λ (var-name new-env)
+                   (add-binding var-name
+                                (value-of arg env)
+                                new-env))))))
 
 (define sequence
   (λ (env es)
@@ -352,4 +384,12 @@
                             right(p))")
                 (num-val 9)
                 "pair sets right")
+  (check-equal? (run
+                  "let x = 5 in
+                    let p = proc (x) begin ( set!(x, 13) ) in
+                      begin ( (p x)
+                               x
+                            )")
+                (num-val 13)
+                "set var from inside procedure")
   )

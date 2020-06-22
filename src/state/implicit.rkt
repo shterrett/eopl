@@ -219,7 +219,7 @@
            (assign-exp (var val)
                      (begin
                        (setref!
-                         (retrieve-binding-ref var env)
+                         (retrieve-reference var env)
                          (value-of val env))
                          (num-val 27) ;; return value is not important, so we
                                       ;; pick a random one
