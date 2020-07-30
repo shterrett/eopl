@@ -2,6 +2,14 @@
 
 (require data/queue)
 
+(provide initialize-scheduler!
+         place-on-ready-queue!
+         run-next-thread
+         set-final-answer!
+         time-expired?
+         decrement-timer!
+)
+
 (struct scheduler
   (ready-queue
    [final-answer #:mutable]
@@ -26,7 +34,7 @@
     (if (queue-empty? (scheduler-ready-queue sch))
         (scheduler-final-answer sch)
         (let ((nt (dequeue! (scheduler-ready-queue sch))))
-          (set-scheduler-time-remaining! sch (- (scheduler-time-remaining sch) 1))
+          (set-scheduler-time-remaining! sch (scheduler-max-time-slice sch))
           (nt)))))
 
 (define set-final-answer!

@@ -7,6 +7,7 @@
 (require "../functions.rkt")
 (require "../state/store.rkt")
 (require "../lists.rkt")
+(require "./scheduler.rkt")
 
 (define-datatype program program?
   (a-program
@@ -52,6 +53,8 @@
     (val expression?))
   (begin-exp
     (es list-of-expressions?))
+  (spawn-exp
+    (thd expression?))
   )
 
 (define list-of-symbols?
@@ -90,10 +93,10 @@
      ))
 
 (define apply-procedure
-  (λ (f val k)
+  (λ (f val sch k)
     (cases proc f
            (procedure (var body saved-env)
-                      (value-of body (add-binding var val saved-env) k)))))
+                      (value-of body (add-binding var val saved-env) sch k)))))
 
 (define lexical-spec
   '((whitespace (whitespace) skip)
@@ -127,6 +130,8 @@
      assign-exp)
     (expression ("begin" "(" (arbno expression) ")")
      begin-exp)
+    (expression ("spawn" "(" expression ")" )
+     spawn-exp)
     ))
 
 (define scan&parse
@@ -177,24 +182,24 @@
     (initialize-store!)
     (cases program pgm
            (a-program (exp1)
-                      (value-of exp1 (init-env) end-cont)))))
+                      (value-of exp1 (init-env) (initialize-scheduler! 5) end-cont)))))
 
 (define value-of
-  (lambda (exp env k)
+  (lambda (exp env sch k)
     (cases expression exp
            (const-exp (num) (k (num-val num)))
            (var-exp (var)
                     (k (retrieve-binding var env)))
            (diff-exp (exp1 exp2)
-                     (value-of exp1 env (diff-arg-cont exp2 env k)))
+                     (value-of exp1 env sch (diff-arg-cont exp2 env sch k)))
            (zero?-exp (exp1)
-                      (value-of exp1 env (zero-cont k)))
+                      (value-of exp1 env sch (zero-cont sch k)))
            (if-exp (exp1 exp2 exp3)
-                   (value-of exp1 env (if-cont exp2 exp3 env k)))
+                   (value-of exp1 env sch (if-cont exp2 exp3 env sch k)))
            (let-exp (var exp1 body)
-              (value-of exp1 env (let-cont var body env k)))
+              (value-of exp1 env sch (let-cont var body env sch k)))
            (proc-exp (vars body)
-                     (value-of (curry-proc-exp vars body) env k))
+                     (value-of (curry-proc-exp vars body) env sch k))
            (procc-exp (var body)
                       (k (proc-val (procedure var body env))))
            (letrec-exp (name vars fn-body let-body)
@@ -208,16 +213,19 @@
                                                          a procedure")))))))
                         (value-of let-body
                                   (add-binding-recursive name pv env)
+                                  sch
                                   k)
                        ))
            (callc-exp (f x)
-                      (value-of f env (callc-op-cont x env k)))
+                      (value-of f env sch (callc-op-cont x env sch k)))
            (call-exp (f xs)
-                     (value-of (curry-call-exp f xs) env k))
+                     (value-of (curry-call-exp f xs) env sch k))
            (assign-exp (var val)
-                     (value-of val env (assign-cont var env k)))
+                     (value-of val env sch (assign-cont var env sch k)))
            (begin-exp (es)
-                      (value-of (head es) env (begin-cont env (tail es) k)))
+                      (value-of (head es) env sch (begin-cont env (tail es) sch k)))
+           (spawn-exp (thr) ;; thr should be a procedure of one ignored argument
+                      (value-of thr env sch (spawn-cont sch k)))
             )))
 
 (define end-cont
@@ -226,50 +234,77 @@
      v))
 
 (define zero-cont
-  (λ (k) (λ (v)
-    (k (bool-val (zero? (expval->num v)))))))
+  (λ (sch k) (build-cont sch (λ (v)
+    (k (bool-val (zero? (expval->num v))))))))
 
 (define let-cont
-  (λ (var body env k) (λ (v)
-    (value-of body (add-binding var v (push-scope env)) k))))
+  (λ (var body env sch k) (build-cont sch (λ (v)
+    (value-of body (add-binding var v (push-scope env)) sch k)))))
 
 (define if-cont
-  (λ (t-exp f-exp env k) (λ (v)
+  (λ (t-exp f-exp env sch k) (build-cont sch (λ (v)
     (if (expval->bool v)
-        (value-of t-exp env k)
-        (value-of f-exp env k)))))
+        (value-of t-exp env sch k)
+        (value-of f-exp env sch k))))))
 
 (define diff-arg-cont
-  (λ (exp2 env k) (λ (val1)
-    (value-of exp2 env (diff-exp-cont val1 k)))))
+  (λ (exp2 env sch k) (build-cont sch (λ (val1)
+    (value-of exp2 env sch (diff-exp-cont val1 sch k))))))
 
 (define diff-exp-cont
-  (λ (val1 k) (λ (val2)
+  (λ (val1 sch k) (build-cont sch (λ (val2)
     (let ((num1 (expval->num val1))
           (num2 (expval->num val2)))
-      (k (num-val (- num1 num2)))))))
+      (k (num-val (- num1 num2))))))))
 
 (define callc-op-cont
-  (λ (arg env k) (λ (f)
+  (λ (arg env sch k) (build-cont sch (λ (f)
     (let ((fn (expval->proc f)))
-      (value-of arg env (callc-arg-cont fn env k))))))
+      (value-of arg env sch (callc-arg-cont fn env sch k)))))))
 
 (define callc-arg-cont
-  (λ (fn env k) (λ (arg)
-    (apply-procedure fn arg k))))
+  (λ (fn env sch k) (build-cont sch (λ (arg)
+    (apply-procedure fn arg sch k)))))
 
 (define assign-cont
-  (λ (var env k) (λ (val)
+  (λ (var env sch k) (build-cont sch (λ (val)
     (begin
       (setref!  (retrieve-reference var env) val)
       (k (num-val 27)) ;; return value not important, so we pick a random one
-      ))))
+      )))))
 
 (define begin-cont
-  (λ (env es k) (λ (v)
+  (λ (env es sch k) (build-cont sch (λ (v)
     (if (null? es)
         v
-        (value-of (begin-exp es) env k)))))
+        (value-of (begin-exp es) env sch k))))))
+
+(define spawn-cont
+  (λ (sch k) (build-cont sch (λ (v)
+    (let ((thread-body (expval->proc v)))
+      (place-on-ready-queue! sch
+        (λ ()
+           (apply-procedure thread-body (num-val 28) sch (end-subthread-cont sch)))))
+    (k (num-val 73))))))
+
+(define end-subthread-cont
+  (λ (sch) (build-cont sch (λ (_)
+    (run-next-thread sch)))))
+
+(define end-main-thread-cont
+  (λ (sch) (build-cont sch (λ (v)
+    (set-final-answer! sch v)
+     (run-next-thread sch)))))
+
+(define build-cont
+  (λ (sch f) (λ (v)
+    (if (time-expired? sch)
+      (begin
+        (place-on-ready-queue! sch (λ () (f v)))
+        (run-next-thread sch))
+      (begin
+        (decrement-timer! sch)
+        (f v))))))
 
 (module+ test
   (require rackunit)
@@ -336,4 +371,16 @@
                             )")
                 (num-val 2)
                 "set implicit refs")
+  (check-equal? (run
+                  "let x = 1
+                    in letrec twoIfZero (dummy) =
+                        if zero?(x) then (set x = 2;) else (twoIfZero 10)
+                      in letrec whenTwo (dummy) =
+                            if zero?(-(x, 2)) then 2 else (whenTwo dummy)
+                        in begin ( spawn (twoIfZero)
+                                    set x = 0;
+                                    (whenTwo 10)
+                                 )")
+                (num-val 2)
+                "spawning threads")
   )
