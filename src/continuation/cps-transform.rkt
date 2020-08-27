@@ -97,6 +97,11 @@
   (cps-callc-exp
     (f simple-expression?)
     (x simple-expression?))
+  (cps-call-cont-exp
+    (f simple-expression?)
+    (x simple-expression?)
+    (k simple-expression?))
+
 )
 
 (define list-of?
@@ -112,48 +117,51 @@
       (var-exp (var) (cps-callc-exp k (cps-var-exp var)))
       (diff-exp (exp1 exp2)
         (cps-transform exp1
-          (cps-procc-exp 'e1
+          (cps-procc-exp 'k-exp-1
             (cps-transform exp2
-              (cps-procc-exp 'e2
-                (cps-callc-exp k (cps-diff-exp (cps-var-exp 'e1)
-                                               (cps-var-exp 'e2))))))))
+              (cps-procc-exp 'k-exp-2
+                (cps-callc-exp k (cps-diff-exp (cps-var-exp 'k-exp-1)
+                                               (cps-var-exp 'k-exp-2))))))))
       (zero?-exp (exp)
         (cps-transform exp
-          (cps-procc-exp 'e
-            (cps-callc-exp k (cps-zero?-exp (cps-var-exp 'e))))))
+          (cps-procc-exp 'k-zero-arg
+            (cps-callc-exp k (cps-zero?-exp (cps-var-exp 'k-zero-arg))))))
       (if-exp (tst ifE thenE)
         (cps-transform tst
-          (cps-procc-exp 't
-            (cps-if-exp (cps-var-exp 't)
+          (cps-procc-exp 'k-test
+            (cps-if-exp (cps-var-exp 'k-test)
                 (cps-transform ifE k)
                 (cps-transform thenE k)))))
       (let-exp (var bind body)
         (cps-transform bind
-          (cps-procc-exp 'bind
+          (cps-procc-exp 'k-bind
             (cps-let-exp var
-                         (cps-var-exp 'bind)
+                         (cps-var-exp 'k-bind)
                          (cps-transform body k)))))
       (proc-exp (vars body)
         (cps-transform (curry-proc-exp vars body) k))
       (procc-exp (var body)
-        (cps-simple-exp (cps-procc-exp var (cps-transform body k))))
+        (cps-callc-exp k
+          (cps-procc-exp var
+            (cps-transform body id-k))))
       (letrec-exp (name vars fn-body let-body)
         (cps-transform fn-body
-          (cps-procc-exp 'fn-body
+          (cps-procc-exp 'k-fn-body
             (cps-letrec-exp
               name
               vars
-              (cps-var-exp 'fn-body)
+              (cps-var-exp 'k-fn-body)
               (cps-transform let-body k)))))
       (call-exp (f xs)
         (cps-transform (curry-call-exp f xs) k))
       (callc-exp (f x)
         (cps-transform f
-          (cps-procc-exp 'f
+          (cps-procc-exp 'k-function-arg
             (cps-transform x
-              (cps-procc-exp 'x
-                (cps-callc-exp k
-                  (cps-callc-exp (cps-var-exp 'f) (cps-var-exp 'x))))))))
+              (cps-procc-exp 'k-arg-arg
+                (cps-call-cont-exp (cps-var-exp 'k-function-arg)
+                                   (cps-var-exp 'k-arg-arg)
+                                   k))))))
 )))
 
 (define curry-proc-exp
@@ -168,6 +176,9 @@
   (λ (f xs)
      (foldl (flip callc-exp) f xs)))
 
+(define id-k
+  (cps-procc-exp 'v (cps-simple-exp (cps-var-exp 'v))))
+
 (define run
   (λ (s)
     (value-of-program (scan&parse s))))
@@ -177,7 +188,7 @@
     (cases in-program pgm
       (a-in-program (in-exp)
         (value-of
-          (cps-transform in-exp (cps-procc-exp 'v (cps-simple-exp (cps-var-exp 'v))))
+          (cps-transform in-exp id-k)
           (init-env))))))
 
 (define value-of
@@ -203,6 +214,12 @@
         (let ((proc (expval->proc (value-of-simple f env)))
               (arg (value-of-simple x env)))
           (apply-procedure proc arg)))
+      (cps-call-cont-exp (f x k)
+        (let ((proc (expval->proc (value-of-simple f env)))
+              (arg (value-of-simple x env))
+              (cont (expval->proc (value-of-simple k env))))
+          (apply-procedure cont
+            (apply-procedure proc arg))))
       )))
 
 (define value-of-simple
@@ -213,7 +230,7 @@
         (let ((val (retrieve-binding var env)))
           (if (is-just val)
               (cdr val)
-              (report-env-lookup-error val))))
+              (report-env-lookup-error var))))
       (cps-diff-exp (e1 e2)
         (let ((v1 (value-of-simple e1 env))
               (v2 (value-of-simple e2 env)))
@@ -331,6 +348,9 @@
   (check-equal? (run "let x = 1 in let y = 3 in if zero?(-(y, x)) then 10 else 20")
                 (num-val 20)
                 "nested let, if, and zero")
+  (check-equal? (run "let id = proc (x) x in 1")
+                (num-val 1)
+                "apply id function")
   (check-equal? (run "let f = proc (x) -(x, 5) in (f 7)")
                 (num-val 2)
                 "apply procedure 7 - 5")
