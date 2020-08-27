@@ -116,28 +116,33 @@
       (const-exp (e) (cps-callc-exp k (cps-const-exp e)))
       (var-exp (var) (cps-callc-exp k (cps-var-exp var)))
       (diff-exp (exp1 exp2)
-        (cps-transform exp1
-          (cps-procc-exp 'k-exp-1
-            (cps-transform exp2
-              (cps-procc-exp 'k-exp-2
-                (cps-callc-exp k (cps-diff-exp (cps-var-exp 'k-exp-1)
-                                               (cps-var-exp 'k-exp-2))))))))
+        (let ((k-e1 (k-var))
+              (k-e2 (k-var)))
+          (cps-transform exp1
+            (cps-procc-exp k-e1
+              (cps-transform exp2
+                (cps-procc-exp k-e2
+                  (cps-callc-exp k (cps-diff-exp (cps-var-exp k-e1)
+                                                (cps-var-exp k-e2)))))))))
       (zero?-exp (exp)
-        (cps-transform exp
-          (cps-procc-exp 'k-zero-arg
-            (cps-callc-exp k (cps-zero?-exp (cps-var-exp 'k-zero-arg))))))
+        (let ((k-zero-arg (k-var)))
+          (cps-transform exp
+            (cps-procc-exp k-zero-arg
+              (cps-callc-exp k (cps-zero?-exp (cps-var-exp k-zero-arg)))))))
       (if-exp (tst ifE thenE)
-        (cps-transform tst
-          (cps-procc-exp 'k-test
-            (cps-if-exp (cps-var-exp 'k-test)
-                (cps-transform ifE k)
-                (cps-transform thenE k)))))
+        (let ((k-test (k-var)))
+          (cps-transform tst
+            (cps-procc-exp k-test
+              (cps-if-exp (cps-var-exp k-test)
+                  (cps-transform ifE k)
+                  (cps-transform thenE k))))))
       (let-exp (var bind body)
-        (cps-transform bind
-          (cps-procc-exp 'k-bind
-            (cps-let-exp var
-                         (cps-var-exp 'k-bind)
-                         (cps-transform body k)))))
+        (let ((k-bind (k-var)))
+          (cps-transform bind
+            (cps-procc-exp k-bind
+              (cps-let-exp var
+                          (cps-var-exp k-bind)
+                          (cps-transform body k))))))
       (proc-exp (vars body)
         (cps-transform (curry-proc-exp vars body) k))
       (procc-exp (var body)
@@ -145,24 +150,37 @@
           (cps-procc-exp var
             (cps-transform body id-k))))
       (letrec-exp (name vars fn-body let-body)
-        (cps-transform fn-body
-          (cps-procc-exp 'k-fn-body
-            (cps-letrec-exp
-              name
-              vars
-              (cps-var-exp 'k-fn-body)
-              (cps-transform let-body k)))))
+        (let ((k-fn (k-var)))
+          (cps-transform fn-body
+            (cps-procc-exp k-fn
+              (cps-letrec-exp
+                name
+                vars
+                (cps-simple-exp (cps-var-exp k-fn))
+                (cps-transform let-body k))))))
       (call-exp (f xs)
         (cps-transform (curry-call-exp f xs) k))
       (callc-exp (f x)
-        (cps-transform f
-          (cps-procc-exp 'k-function-arg
-            (cps-transform x
-              (cps-procc-exp 'k-arg-arg
-                (cps-call-cont-exp (cps-var-exp 'k-function-arg)
-                                   (cps-var-exp 'k-arg-arg)
-                                   k))))))
+        (let ((k-fn (k-var))
+              (k-arg (k-var)))
+          (cps-transform f
+            (cps-procc-exp k-fn
+              (cps-transform x
+                (cps-procc-exp k-arg
+                  (cps-call-cont-exp (cps-var-exp k-fn)
+                                    (cps-var-exp k-arg)
+                                    k)))))))
 )))
+
+(define k-var-idx 0)
+
+(define k-var
+  (λ ()
+  (let ((idx k-var-idx))
+    (set! k-var-idx (+ 1 idx))
+    (string->symbol
+      (string-append "k-var-"
+                    (number->string idx))))))
 
 (define curry-proc-exp
   (λ (vars body)
