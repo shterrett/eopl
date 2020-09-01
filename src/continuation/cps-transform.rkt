@@ -150,14 +150,10 @@
           (cps-procc-exp var
             (cps-transform body id-k))))
       (letrec-exp (name vars fn-body let-body)
-        (let ((k-fn (k-var)))
-          (cps-transform fn-body
-            (cps-procc-exp k-fn
-              (cps-letrec-exp
-                name
-                vars
-                (cps-simple-exp (cps-var-exp k-fn))
-                (cps-transform let-body k))))))
+        (cps-letrec-exp name
+                        vars
+                        (cps-transform fn-body id-k)
+                        (cps-transform let-body k)))
       (call-exp (f xs)
         (cps-transform (curry-call-exp f xs) k))
       (callc-exp (f x)
@@ -188,7 +184,11 @@
 
 (define curry-cps-proc-exp
   (λ (vars body)
-     (foldr cps-procc-exp body vars)))
+     (foldr (λ(v b) (cps-procc-exp v (if (simple-expression? b)
+                                         (cps-simple-exp b)
+                                         b)))
+                    body
+                    vars)))
 
 (define curry-call-exp
   (λ (f xs)
@@ -219,10 +219,12 @@
           (value-of body
             (add-binding var val (push-scope env)))))
       (cps-letrec-exp (name vars fn-body let-body)
-        (let ((pv (λ(new-env) (value-of (curry-cps-proc-exp vars fn-body) new-env))))
-        (value-of let-body
-                  (add-binding-recursive name pv env))
-        ))
+        (let* ((pv (λ(new-env)
+                    (cases simple-expression (curry-cps-proc-exp vars fn-body)
+                      (cps-procc-exp (var body)
+                        (proc-val (procedure var body new-env)))
+                      (else (error "letrec procedure is not a procedure"))))))
+        (value-of let-body (add-binding-recursive name pv env))))
       (cps-if-exp (exp1 exp2 exp3)
               (let ((val1 (value-of-simple exp1 env)))
                 (if (expval->bool val1)
